@@ -28,6 +28,12 @@ ESP32-C3 SuperMini + MAX7219 dot matrix display:
 
 <img width="1375" height="1126" alt="MAX7219 with ESP32-C3 wiring" src="https://github.com/user-attachments/assets/c8bac4e1-fcc6-4bc9-9245-5c1c649b411e" />
 
+parts:
+
+MAX7210: https://www.aliexpress.com/item/1005008005112441.html (comes with cable)
+
+ESP32-C3 Supermini: https://www.aliexpress.com/item/1005005967641936.html
+
 ---
 
 ## ⚙️ Installation
