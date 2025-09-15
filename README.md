@@ -68,5 +68,17 @@ mqtt_topic: "matrixclock-1"
 *(You can leave the topic as-is unless you plan to run multiple clocks.)*
 
 compile! (install) :)
+
 ---
 
+To test, go to developer tools, actions, and publish (mqtt.publish) this:
+
+```yaml
+action: mqtt.publish
+data:
+  evaluate_payload: false
+  qos: 0
+  retain: false
+  topic: matrixclock-1/scroll
+  payload: "testing scrolling text and the speed TESTING TESTING TESTING "
+```
