@@ -67,5 +67,6 @@ mqtt_topic: "matrixclock-1"
 
 *(You can leave the topic as-is unless you plan to run multiple clocks.)*
 
+compile! (install) :)
 ---
 
