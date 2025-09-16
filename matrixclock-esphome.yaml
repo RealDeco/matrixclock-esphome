@@ -35,12 +35,7 @@ esphome:
   min_version: 2025.5.0
   name_add_mac_suffix: false
 
-  on_boot:
-    priority: -100
-    then:
-      - select.set:
-          id: clock_format_select
-          option: !lambda 'return id(use_12h_mode) ? "12" : "24";'
+
 
 esp32:
   variant: esp32c3
@@ -72,6 +67,7 @@ mqtt:
   port: 1883
   username: !secret mqtt_username
   password: !secret mqtt_password
+  discovery: false
   birth_message:
     topic: "${mqtt_topic}/status"
     payload: "online"
@@ -86,7 +82,6 @@ mqtt:
     - topic: "${mqtt_topic}/scroll"
       then:
         - lambda: |-
-            // Copy payload and strip CR/LF (and other control chars)
             std::string s = x.c_str();
             s.erase(std::remove(s.begin(), s.end(), '\r'), s.end());
             s.erase(std::remove(s.begin(), s.end(), '\n'), s.end());
@@ -106,13 +101,7 @@ mqtt:
             } else if (x == "24") {
               id(use_12h_mode) = false;
             }
-        - select.set:
-            id: clock_format_select
-            option: !lambda 'return id(use_12h_mode) ? "12" : "24";'
-        # Optional echo of current mode:
-        # - mqtt.publish:
-        #     topic: "${mqtt_topic}/mode_status"
-        #     payload: !lambda 'return id(use_12h_mode) ? "12" : "24";'
+        - component.update: clock_format_select
 
 time:
   - platform: homeassistant
@@ -158,14 +147,13 @@ select:
     id: clock_format_select
     name: "${friendly_name} Clock Format"
     icon: "mdi:clock-time-three-outline"
-    options:
-      - "24"
-      - "12"
-    restore_value: true
-    initial_option: "24"
+    options: ["24", "12"]
+    lambda: |-
+      return id(use_12h_mode) ? std::string("12") : std::string("24");
     set_action:
       - lambda: |-
           id(use_12h_mode) = (x == "12");
+      - component.update: clock_format_select
 
 script:
   - id: do_scroll
