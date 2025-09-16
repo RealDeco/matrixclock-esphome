@@ -26,7 +26,7 @@ This time, I wanted to run it on an **ESP32-C3 SuperMini** and instead of portin
 
 ESP32-C3 SuperMini + MAX7219 dot matrix display:
 
-<img width="1375" height="1126" alt="MAX7219 with ESP32-C3 wiring" src="https://github.com/user-attachments/assets/c8bac4e1-fcc6-4bc9-9245-5c1c649b411e" />
+<img width="1375" height="1126" alt="MAX7219 with ESP32-C3 wiring" src="https://github.com/user-attachments/assets/793786bd-a283-41f0-a64a-3bc666f463f3" />
 
 parts:
 
