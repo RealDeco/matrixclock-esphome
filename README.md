@@ -1,5 +1,5 @@
 
-# 🕒 Matrix Clock with MAX7219
+# 🕒 Matrix Clock for Esphome with MAX7219
 
 A simple yet nice-looking **Matrix Clock** built using **MAX7219 dot matrix displays** and esp32-c3 supermini.
 
@@ -8,7 +8,7 @@ Nothing groundbreaking here — it’s just a digital clock that:
 * Keeps time over NTP (or from home assistant)
 * Listens to MQTT for messages
 * Scrolls any received text across the display
-
+* Runs with or without Home Assistant
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/81570a0f-60f7-4607-b54b-495173f3b5ba" alt="Matrix Clock preview" width="500"/>
@@ -60,18 +60,34 @@ mqtt_password: "your-mqtt-password"
 
 ### 3. Configuration
 
-At the top of your YAML script, define your MQTT broker and topic:
+At the top of your YAML script you will find this, change IP to your MQTT broker
+
+if using several clocks, change topic for each
+
+other settings can be left as they are if you followed the diagram:
 
 ```yaml
-mqtt_broker: 10.66.66.12
-mqtt_topic: "matrixclock-1"
+  mqtt_broker: 10.66.66.12
+  mqtt_topic: "matrixclock-1"
+
+  pin_mosi: GPIO8
+  pin_cs:   GPIO9
+  pin_sck:  GPIO10
+
+  num_chips: "4"
+
+  scroll_delay_ms: "20" 
 ```
 
-*(You can leave the topic as-is unless you plan to run multiple clocks.)*
+(*chips = number of max7219 sections on the board, usually 4, but could be 8*)
 
-compile! (install) :)
+### 4. Configuration
+
+compile (install) and you are done! :)
 
 ---
+
+## ⚙️ Testing MQTT
 
 To test, go to developer tools, actions, and publish (mqtt.publish) this:
 
