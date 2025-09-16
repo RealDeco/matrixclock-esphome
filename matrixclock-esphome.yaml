@@ -2,10 +2,12 @@ substitutions:
   name: esphome-web-8446c0
   friendly_name: matrixclock-esphome
 
+### V1.02:
+# bugfixes
 ### V1.01:
-### Added: 12h/24h option, scroll speed settings, webserver to set wifi and 12/24h mode.
+# Added: 12h/24h option, scroll speed settings, webserver to set wifi and 12/24h mode.
 ### V1.00:
-### initial code
+# initial code
 
 #### SETTINGS ##############################################################################################################################
 
@@ -20,7 +22,7 @@ substitutions:
 
   num_chips: "4"
 
-  scroll_delay_ms: "20"   # delay between scroll steps (ms). Increase = slower, Decrease = faster/smoother
+  scroll_delay_ms: "12"   # delay between scroll steps (ms). Increase = slower, Decrease = faster/smoother
 
 ############################################################################################################################################
 
@@ -84,12 +86,18 @@ mqtt:
     - topic: "${mqtt_topic}/scroll"
       then:
         - lambda: |-
-            id(scroll_text) = x.c_str();
+            // Copy payload and strip CR/LF (and other control chars)
+            std::string s = x.c_str();
+            s.erase(std::remove(s.begin(), s.end(), '\r'), s.end());
+            s.erase(std::remove(s.begin(), s.end(), '\n'), s.end());
+            s.erase(std::remove_if(s.begin(), s.end(),
+              [](unsigned char c){ return c < 0x20; }), s.end());
+
+            id(scroll_text) = s;
             id(scroll_x) = ${num_chips} * 8;
             id(scrolling) = true;
         - script.execute: do_scroll
 
-    # Runtime toggle via MQTT: publish "12" or "24" to matrixclock-1/mode
     - topic: "${mqtt_topic}/mode"
       then:
         - lambda: |-
@@ -120,11 +128,11 @@ font:
   - file: "fonts/Eight-Bit-Dragon.ttf"
     id: digit5
     size: 8
-    glyphs: ["0123456789: "]
+    glyphs: ["0123456789: -"]
 
   - file: "fonts/5x8.bdf"
     id: font5x8
-    glyphs: ["0123456789: abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ°-_.!,?()[]/%+*#&'\""]
+    size: 8
 
 spi:
   clk_pin: ${pin_sck}
