@@ -10,8 +10,10 @@ Nothing groundbreaking here — it’s just a digital clock that:
 * Scrolls any received text across the display
 
 
-<img width="1024" height="1024" alt="Matrix Clock preview" src="https://github.com/user-attachments/assets/81570a0f-60f7-4607-b54b-495173f3b5ba" />
-
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/81570a0f-60f7-4607-b54b-495173f3b5ba" alt="Matrix Clock preview" width="500"/>
+  <img src="https://github.com/user-attachments/assets/7f054f3b-f26c-47f8-9664-c826921ed674" alt="unnamed-2" width="500"/>
+</p>
 ---
 
 ## 📖 Background
