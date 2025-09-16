@@ -60,13 +60,15 @@ mqtt_password: "your-mqtt-password"
 
 ### 3. Configuration
 
-At the top of your YAML script you will find this, change IP to your MQTT broker
+At the top of your YAML script you will find this, change timezone and IP of your MQTT broker
 
 if using several clocks, change topic for each
 
 other settings can be left as they are if you followed the diagram:
 
 ```yaml
+  clock_timezone: "Europe/Copenhagen" # (only used if no HA)
+
   mqtt_broker: 10.66.66.12
   mqtt_topic: "matrixclock-1"
 
@@ -76,7 +78,7 @@ other settings can be left as they are if you followed the diagram:
 
   num_chips: "4"
 
-  scroll_delay_ms: "20" 
+  scroll_delay_ms: "20"   # delay between scroll steps (ms). Increase = slower, Decrease = faster/smoother
 ```
 
 (*chips = number of max7219 sections on the board, usually 4, but could be 8*)
