@@ -3,7 +3,7 @@ substitutions:
   friendly_name: matrixclock-esphome
 
 ### V1.01:
-### Added: 12h/24h option
+### Added: 12h/24h option, scroll speed settings, webserver to set wifi and 12/24h mode.
 ### V1.00:
 ### initial code
 
@@ -17,6 +17,8 @@ substitutions:
   pin_sck:  GPIO10
 
   num_chips: "4"
+
+  scroll_delay_ms: "20"   # delay between scroll steps (ms). Increase = slower, Decrease = faster/smoother
 
 ############################################################################################################################################
 
@@ -120,7 +122,7 @@ font:
 
   - file: "fonts/5x8.bdf"
     id: font5x8
-    glyphs: ["0123456789: abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.!,?()[]/%+*#&'\""]
+    glyphs: ["0123456789: abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ°-_.!,?()[]/%+*#&'\""]
 
 spi:
   clk_pin: ${pin_sck}
@@ -170,7 +172,7 @@ script:
                   id(scrolling) = false;
                 }
             - component.update: matrix
-            - delay: 25ms
+            - delay: ${scroll_delay_ms}ms
 
 display:
   - platform: max7219digit
