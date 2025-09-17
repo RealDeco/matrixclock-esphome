@@ -2,6 +2,8 @@ substitutions:
   name: esphome-web-8446c0
   friendly_name: matrixclock-esphome
 
+### V1.03:
+# changed to ESP-IDF framework.
 ### V1.02:
 # bugfixes
 ### V1.01:
@@ -10,7 +12,6 @@ substitutions:
 # initial code
 
 #### SETTINGS ##############################################################################################################################
-
   clock_timezone: "Europe/Copenhagen" # (only used if no HA)
 
   mqtt_broker: 10.66.66.12
@@ -23,7 +24,6 @@ substitutions:
   num_chips: "4"
 
   scroll_delay_ms: "12"   # delay between scroll steps (ms). Increase = slower, Decrease = faster/smoother
-
 ############################################################################################################################################
 
   y_offset: "0"
@@ -35,12 +35,11 @@ esphome:
   min_version: 2025.5.0
   name_add_mac_suffix: false
 
-
-
 esp32:
   variant: esp32c3
   framework:
-    type: arduino
+    type: esp-idf
+    version: recommended
 
 logger:
 
@@ -87,7 +86,6 @@ mqtt:
             s.erase(std::remove(s.begin(), s.end(), '\n'), s.end());
             s.erase(std::remove_if(s.begin(), s.end(),
               [](unsigned char c){ return c < 0x20; }), s.end());
-
             id(scroll_text) = s;
             id(scroll_x) = ${num_chips} * 8;
             id(scrolling) = true;
@@ -149,7 +147,7 @@ select:
     icon: "mdi:clock-time-three-outline"
     options: ["24", "12"]
     lambda: |-
-      return id(use_12h_mode) ? std::string("12") : std::string("24");
+      return esphome::optional<std::string>(std::string(id(use_12h_mode) ? "12" : "24"));
     set_action:
       - lambda: |-
           id(use_12h_mode) = (x == "12");
@@ -232,29 +230,26 @@ display:
       if (id(use_12h_mode)) {
         const bool is_pm = now.hour >= 12;
 
-        // 3x4 bitmap font for 'A' and 'P'
-        auto draw_letter_3x4 = [&](int x, int y_top, bool draw_A) {
-          const uint8_t A[4] = {0b010, 0b101, 0b111, 0b101}; // width=3
-          const uint8_t P[4] = {0b110, 0b101, 0b110, 0b100}; // width=3
-          const uint8_t* L = draw_A ? A : P;
+        // 3x4 bitmap font rows (IDF-safe: use integers, no 0b literals; avoid inner lambdas)
+        const uint8_t A_rows[4] = { 2, 5, 7, 5 };  // 0b010,0b101,0b111,0b101
+        const uint8_t P_rows[4] = { 6, 5, 6, 4 };  // 0b110,0b101,0b110,0b100
+        const uint8_t *L = is_pm ? P_rows : A_rows;
 
-          for (int r = 0; r < 4; r++) {
-            for (int c = 0; c < 3; c++) {
-              if (L[r] & (1 << (2 - c))) {
-                int xx = x + c;
-                int yy = y_top + r;
-                if (yy >= 0 && yy <= 7 && xx >= 0 && xx <= 31) {
-                  it.draw_pixel_at(xx, yy, Color::WHITE);
-                }
+        const int x_ampm = 29;
+        const int y_ampm = y + 4;
+
+        for (int r = 0; r < 4; r++) {
+          uint8_t row = L[r];
+          for (int c = 0; c < 3; c++) {
+            if (row & (1 << (2 - c))) {
+              int xx = x_ampm + c;
+              int yy = y_ampm + r;
+              if (yy >= 0 && yy <= 7 && xx >= 0 && xx <= 31) {
+                it.draw_pixel_at(xx, yy, Color::WHITE);
               }
             }
           }
-        };
-
-        // right edge (cols 29..31), vertically centered
-        const int x_ampm = 29;
-        const int y_ampm = y + 4;
-        draw_letter_3x4(x_ampm, y_ampm, !is_pm); // A if AM, P if PM
+        }
       }
 
       // Colon blink
