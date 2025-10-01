@@ -1,30 +1,32 @@
 substitutions:
-  name: esphome-web-8446c0
-  friendly_name: matrixclock-esphome
+  name: esphome-web-844748
+  friendly_name: matrixclock-2
 
+### V1.04:
+# added mqtt topic matrixclock-2/bright send 0 turn off display, 1-15 to set brightness
 ### V1.03:
 # changed to ESP-IDF framework.
 ### V1.02:
 # bugfixes
 ### V1.01:
-# Added: 12h/24h option, scroll speed settings, webserver to set wifi and 12/24h mode.
+# Added: 12h/24h option, scroll speed settings, webserver to set wifi and 12/24h mode
 ### V1.00:
 # initial code
 
-#### SETTINGS ##############################################################################################################################
-  clock_timezone: "Europe/Copenhagen" # (only used if no HA)
+### SETTINGS ###################################################################################################################
 
+  clock_timezone: "Europe/Copenhagen"   # (only used if no HA time)
   mqtt_broker: 10.66.66.12
-  mqtt_topic: "matrixclock-1"
+  mqtt_topic: "matrixclock-2"
 
   pin_mosi: GPIO8
   pin_cs:   GPIO9
   pin_sck:  GPIO10
 
   num_chips: "4"
+  scroll_delay_ms: "12"   # ms between scroll steps
 
-  scroll_delay_ms: "12"   # delay between scroll steps (ms). Increase = slower, Decrease = faster/smoother
-############################################################################################################################################
+################################################################################################################################
 
   y_offset: "0"
   y_scroll_offset: "0"
@@ -34,6 +36,17 @@ esphome:
   friendly_name: ${friendly_name}
   min_version: 2025.5.0
   name_add_mac_suffix: false
+  on_boot:
+    priority: 600
+    then:
+      - lambda: |-
+          // Restore last state on boot: 0=OFF, 1..15=ON (brightness applied by lambda)
+          if (id(matrix_intensity) <= 0) {
+            id(matrix).turn_on_off(false);
+          } else {
+            id(matrix).turn_on_off(true);
+          }
+      - component.update: matrix
 
 esp32:
   variant: esp32c3
@@ -51,7 +64,6 @@ ota:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-
   ap:
     ssid: "${friendly_name} Setup"
     password: "matrixclock"
@@ -77,6 +89,7 @@ mqtt:
     payload: "offline"
     qos: 0
     retain: true
+
   on_message:
     - topic: "${mqtt_topic}/scroll"
       then:
@@ -101,16 +114,42 @@ mqtt:
             }
         - component.update: clock_format_select
 
+    - topic: "${mqtt_topic}/bright"
+      then:
+        - lambda: |-
+            std::string s = x.c_str();
+            // Strip control chars and trim spaces
+            s.erase(std::remove_if(s.begin(), s.end(),
+              [](unsigned char c){ return c < 0x20 || c == 0x7F; }), s.end());
+            s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](int ch){ return !std::isspace(ch); }));
+            s.erase(std::find_if(s.rbegin(), s.rend(), [](int ch){ return !std::isspace(ch); }).base(), s.end());
+
+            if (s.empty() || !std::all_of(s.begin(), s.end(), ::isdigit)) {
+              ESP_LOGW("BRIGHT", "Ignoring non-numeric payload: '%s'", s.c_str());
+              return;
+            }
+
+            int v = atoi(s.c_str());
+            if (v <= 0) {
+              id(matrix_intensity) = 0;
+              id(matrix).turn_on_off(false);      // HARD off
+              ESP_LOGI("BRIGHT", "Display OFF");
+            } else {
+              if (v > 15) v = 15;
+              id(matrix_intensity) = v;           // store new level
+              id(matrix).turn_on_off(true);       // power up; lambda will set intensity
+              ESP_LOGI("BRIGHT", "Display ON, queued brightness %d", v);
+            }
+        - component.update: matrix
+
 time:
   - platform: homeassistant
     id: homeassistant_time
 
-  # Fallback: SNTP (works without HA)
   - platform: sntp
     id: ntp_time
     timezone: ${clock_timezone}
 
-### Fonts must exist in esphome/fonts/
 font:
   - file: "fonts/Eight-Bit-Dragon.ttf"
     id: digit5
@@ -139,6 +178,10 @@ globals:
     type: bool
     restore_value: true
     initial_value: 'false'
+  - id: matrix_intensity
+    type: int
+    restore_value: true
+    initial_value: '2'
 
 select:
   - platform: template
@@ -182,6 +225,22 @@ display:
     flip_x: false
 
     lambda: |-
+      // Apply brightness only when it changes (prevents flicker)
+      static int last_brightness = -1;
+      if (id(matrix_intensity) != last_brightness) {
+        if (id(matrix_intensity) > 0) {
+          int v = id(matrix_intensity);
+          if (v > 15) v = 15;
+          it.intensity((uint8_t) v);      // <-- this is the working way
+        }
+        last_brightness = id(matrix_intensity);
+      }
+
+      // If OFF (0), stop here (device is powered down via turn_on_off(false))
+      if (id(matrix_intensity) == 0) {
+        return;
+      }
+
       it.clear();
 
       if (id(scrolling)) {
@@ -230,9 +289,8 @@ display:
       if (id(use_12h_mode)) {
         const bool is_pm = now.hour >= 12;
 
-        // 3x4 bitmap font rows (IDF-safe: use integers, no 0b literals; avoid inner lambdas)
-        const uint8_t A_rows[4] = { 2, 5, 7, 5 };  // 0b010,0b101,0b111,0b101
-        const uint8_t P_rows[4] = { 6, 5, 6, 4 };  // 0b110,0b101,0b110,0b100
+        const uint8_t A_rows[4] = { 2, 5, 7, 5 };
+        const uint8_t P_rows[4] = { 6, 5, 6, 4 };
         const uint8_t *L = is_pm ? P_rows : A_rows;
 
         const int x_ampm = 29;
