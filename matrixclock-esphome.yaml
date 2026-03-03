@@ -1,7 +1,23 @@
 substitutions:
-  name: esphome-web-844748
-  friendly_name: matrixclock-2
+  name: esphome-web-b62180
+  friendly_name: MatrixClock
 
+### V1.10:
+# Restored: full version history + structured formatting (no functional changes)
+### V1.09:
+# Behavior update:
+# - Before any scroll starts: clock always slides DOWN (exit) regardless of selected effect
+# - After scroll ends: selected re-entry effect runs (Slide up / Slide down / Pixel fall)
+# - Transition selector now has 3 options (re-entry only)
+### V1.08:
+# Added: Transition Effect selector (None / Slide / Pixel fall)
+# Fixed: Pixel fall now hides the clock until the effect finishes (no “clock underneath” look)
+### V1.07:
+# Added: transition effects when returning from scroll -> clock (Slide + Pixel fall)
+### V1.06:
+# Scroll Text (HA text entity) now clears itself after use (reliable delayed clear)
+### V1.05:
+# Brightness is now a HA Light entity (on/off + slider) + bidirectional MQTT sync on ${mqtt_topic}/bright (0..15) with loop protection
 ### V1.04:
 # added mqtt topic matrixclock-2/bright send 0 turn off display, 1-15 to set brightness
 ### V1.03:
@@ -17,14 +33,14 @@ substitutions:
 
   clock_timezone: "Europe/Copenhagen"   # (only used if no HA time)
   mqtt_broker: 10.66.66.12
-  mqtt_topic: "matrixclock-2"
+  mqtt_topic: "matrixclock-new"
 
   pin_mosi: GPIO8
   pin_cs:   GPIO9
   pin_sck:  GPIO10
 
   num_chips: "4"
-  scroll_delay_ms: "12"   # ms between scroll steps
+  scroll_delay_ms: "15"   # ms between scroll steps
 
 ################################################################################################################################
 
@@ -39,14 +55,14 @@ esphome:
   on_boot:
     priority: 600
     then:
+      # Ensure HA shows the text box as empty (not "unknown")
+      - delay: 500ms
       - lambda: |-
-          // Restore last state on boot: 0=OFF, 1..15=ON (brightness applied by lambda)
-          if (id(matrix_intensity) <= 0) {
-            id(matrix).turn_on_off(false);
-          } else {
-            id(matrix).turn_on_off(true);
-          }
+          id(ha_scroll_text).publish_state("");
       - component.update: matrix
+  project:
+    name: matrixclock.matrixclock
+    version: "1.10"
 
 esp32:
   variant: esp32c3
@@ -99,10 +115,12 @@ mqtt:
             s.erase(std::remove(s.begin(), s.end(), '\n'), s.end());
             s.erase(std::remove_if(s.begin(), s.end(),
               [](unsigned char c){ return c < 0x20; }), s.end());
+
+            if (s.empty()) return;
+
             id(scroll_text) = s;
             id(scroll_x) = ${num_chips} * 8;
-            id(scrolling) = true;
-        - script.execute: do_scroll
+        - script.execute: start_scroll_sequence
 
     - topic: "${mqtt_topic}/mode"
       then:
@@ -114,33 +132,62 @@ mqtt:
             }
         - component.update: clock_format_select
 
+    # 0=OFF, 1..15=brightness
     - topic: "${mqtt_topic}/bright"
       then:
         - lambda: |-
             std::string s = x.c_str();
-            // Strip control chars and trim spaces
             s.erase(std::remove_if(s.begin(), s.end(),
               [](unsigned char c){ return c < 0x20 || c == 0x7F; }), s.end());
             s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](int ch){ return !std::isspace(ch); }));
             s.erase(std::find_if(s.rbegin(), s.rend(), [](int ch){ return !std::isspace(ch); }).base(), s.end());
 
-            if (s.empty() || !std::all_of(s.begin(), s.end(), ::isdigit)) {
-              ESP_LOGW("BRIGHT", "Ignoring non-numeric payload: '%s'", s.c_str());
-              return;
-            }
+            if (s.empty() || !std::all_of(s.begin(), s.end(), ::isdigit)) return;
 
             int v = atoi(s.c_str());
-            if (v <= 0) {
-              id(matrix_intensity) = 0;
-              id(matrix).turn_on_off(false);      // HARD off
-              ESP_LOGI("BRIGHT", "Display OFF");
+            if (v < 0) v = 0;
+            if (v > 15) v = 15;
+
+            id(suppress_mqtt_bright_sync) = true;
+
+            if (v == 0) {
+              id(matrix_light).turn_off().perform();
             } else {
-              if (v > 15) v = 15;
-              id(matrix_intensity) = v;           // store new level
-              id(matrix).turn_on_off(true);       // power up; lambda will set intensity
-              ESP_LOGI("BRIGHT", "Display ON, queued brightness %d", v);
+              auto call = id(matrix_light).turn_on();
+              call.set_brightness((float) v / 15.0f);
+              call.perform();
             }
-        - component.update: matrix
+
+            id(last_mqtt_bright) = v;
+            id(suppress_mqtt_bright_sync) = false;
+
+text:
+  - platform: template
+    id: ha_scroll_text
+    name: "${friendly_name} Scroll Text"
+    icon: "mdi:message-text-outline"
+    mode: text
+    max_length: 80
+    optimistic: false
+    set_action:
+      - lambda: |-
+          std::string s = x.c_str();
+
+          s.erase(std::remove(s.begin(), s.end(), '\r'), s.end());
+          s.erase(std::remove(s.begin(), s.end(), '\n'), s.end());
+          s.erase(std::remove_if(s.begin(), s.end(),
+            [](unsigned char c){ return c < 0x20; }), s.end());
+
+          // Publish what HA sent so the UI updates immediately
+          id(ha_scroll_text).publish_state(s.c_str());
+
+          if (s.empty()) return;
+
+          id(scroll_text) = s;
+          id(scroll_x) = ${num_chips} * 8;
+
+      - script.execute: start_scroll_sequence
+      - script.execute: clear_scroll_text_box
 
 time:
   - platform: homeassistant
@@ -168,20 +215,143 @@ globals:
   - id: scroll_text
     type: std::string
     initial_value: ""
+
   - id: scroll_x
     type: int
     initial_value: '0'
+
   - id: scrolling
     type: bool
     initial_value: 'false'
+
   - id: use_12h_mode
     type: bool
     restore_value: true
     initial_value: 'false'
-  - id: matrix_intensity
+
+  - id: scroll_delay_runtime
     type: int
     restore_value: true
+    initial_value: '${scroll_delay_ms}'
+
+  # MAX7219 intensity: 0=OFF, 1..15=ON (driven by HA light)
+  - id: matrix_intensity
+    type: int
+    restore_value: false
     initial_value: '2'
+
+  # Brightness sync (HA <-> MQTT)
+  - id: suppress_mqtt_bright_sync
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+
+  - id: target_mqtt_bright
+    type: int
+    restore_value: false
+    initial_value: '-1'
+
+  - id: last_mqtt_bright
+    type: int
+    restore_value: false
+    initial_value: '-1'
+
+  # Re-entry effect after scrolling: 0=Slide up, 1=Slide down, 2=Pixel fall
+  - id: transition_mode
+    type: int
+    restore_value: true
+    initial_value: '0'
+
+  # Slide transitions (exit + re-entry)
+  - id: transition_active
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+
+  - id: transition_y
+    type: int
+    restore_value: false
+    initial_value: '0'
+
+  # Pixel-fall transition
+  - id: pixel_fall_active
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+
+  - id: pixel_fall_gen
+    type: int
+    restore_value: false
+    initial_value: '0'
+
+number:
+  - platform: template
+    id: scroll_delay_number
+    name: "${friendly_name} Scroll Delay"
+    icon: "mdi:timer-outline"
+    unit_of_measurement: "ms"
+    min_value: 1
+    max_value: 100
+    step: 1
+    restore_value: true
+    initial_value: ${scroll_delay_ms}
+    optimistic: true
+    set_action:
+      - lambda: |-
+          id(scroll_delay_runtime) = (int) x;
+
+output:
+  - platform: template
+    id: matrix_brightness_out
+    type: float
+    write_action:
+      - lambda: |-
+          int pub = 0;
+
+          if (state <= 0.001f) {
+            id(matrix_intensity) = 0;
+            id(matrix).turn_on_off(false);
+            pub = 0;
+          } else {
+            int v = (int) lroundf(state * 15.0f);
+            if (v < 1) v = 1;
+            if (v > 15) v = 15;
+
+            id(matrix_intensity) = v;
+            id(matrix).turn_on_off(true);
+            pub = v;
+          }
+
+          id(target_mqtt_bright) = pub;
+
+      - component.update: matrix
+
+      - if:
+          condition:
+            lambda: |-
+              return !id(suppress_mqtt_bright_sync)
+                  && (id(target_mqtt_bright) != id(last_mqtt_bright));
+          then:
+            - mqtt.publish:
+                topic: "${mqtt_topic}/bright"
+                payload: !lambda |-
+                  char buf[6];
+                  snprintf(buf, sizeof(buf), "%d", id(target_mqtt_bright));
+                  return std::string(buf);
+                qos: 0
+                retain: true
+            - lambda: |-
+                id(last_mqtt_bright) = id(target_mqtt_bright);
+
+light:
+  - platform: monochromatic
+    id: matrix_light
+    name: "${friendly_name} Display"
+    icon: "mdi:brightness-6"
+    output: matrix_brightness_out
+    gamma_correct: 1.0
+    default_transition_length: 0s
+    restore_mode: RESTORE_DEFAULT_ON
 
 select:
   - platform: template
@@ -196,7 +366,44 @@ select:
           id(use_12h_mode) = (x == "12");
       - component.update: clock_format_select
 
+  - platform: template
+    id: transition_select
+    name: "${friendly_name} Transition Effect"
+    icon: "mdi:transition"
+    options: ["Slide up", "Slide down", "Pixel fall"]
+    lambda: |-
+      if (id(transition_mode) == 2) return std::string("Pixel fall");
+      if (id(transition_mode) == 1) return std::string("Slide down");
+      return std::string("Slide up");
+    set_action:
+      - lambda: |-
+          if (x == "Pixel fall") id(transition_mode) = 2;
+          else if (x == "Slide down") id(transition_mode) = 1;
+          else id(transition_mode) = 0;
+      - component.update: transition_select
+
 script:
+  - id: clear_scroll_text_box
+    mode: restart
+    then:
+      - delay: 400ms
+      - lambda: |-
+          id(ha_scroll_text).publish_state("");
+
+  # Sequence: exit slide-down -> scroll -> selected re-entry
+  - id: start_scroll_sequence
+    mode: restart
+    then:
+      - lambda: |-
+          id(scrolling) = false;
+          id(pixel_fall_active) = false;
+      - component.update: matrix
+      - script.execute: clock_exit_down
+      - script.wait: clock_exit_down
+      - lambda: |-
+          id(scrolling) = true;
+      - script.execute: do_scroll
+
   - id: do_scroll
     mode: restart
     then:
@@ -206,12 +413,95 @@ script:
           then:
             - lambda: |-
                 id(scroll_x) -= 1;
-                int end_limit = - (int(id(scroll_text).length()) * 6);
+                const int end_limit = - (int(id(scroll_text).length()) * 6);
                 if (id(scroll_x) < end_limit) {
                   id(scrolling) = false;
+
+                  if (id(transition_mode) == 1) {
+                    id(clock_slide_down_entry).execute();
+                  } else if (id(transition_mode) == 2) {
+                    id(clock_pixel_fall_transition).execute();
+                  } else {
+                    id(clock_slide_up_entry).execute();
+                  }
                 }
             - component.update: matrix
-            - delay: ${scroll_delay_ms}ms
+            - delay: !lambda "return (uint32_t) id(scroll_delay_runtime);"
+
+  # Exit: slide clock down off-screen and keep it off-screen (prevents 1-frame flash)
+  - id: clock_exit_down
+    mode: restart
+    then:
+      - lambda: |-
+          id(transition_active) = true;
+          id(transition_y) = ${y_offset};
+      - repeat:
+          count: 9
+          then:
+            - lambda: |-
+                id(transition_y) += 1;
+            - component.update: matrix
+            - delay: 45ms
+      - lambda: |-
+          id(transition_active) = true;
+          id(transition_y) = 8;
+      - component.update: matrix
+
+  - id: clock_slide_down_entry
+    mode: restart
+    then:
+      - lambda: |-
+          id(transition_active) = true;
+          id(transition_y) = -8;
+      - repeat:
+          count: 9
+          then:
+            - lambda: |-
+                id(transition_y) += 1;
+            - component.update: matrix
+            - delay: 60ms
+      - lambda: |-
+          id(transition_active) = false;
+          id(transition_y) = ${y_offset};
+      - component.update: matrix
+
+  - id: clock_slide_up_entry
+    mode: restart
+    then:
+      - lambda: |-
+          id(transition_active) = true;
+          id(transition_y) = 8;
+      - repeat:
+          count: 9
+          then:
+            - lambda: |-
+                id(transition_y) -= 1;
+            - component.update: matrix
+            - delay: 60ms
+      - lambda: |-
+          id(transition_active) = false;
+          id(transition_y) = ${y_offset};
+      - component.update: matrix
+
+  - id: clock_pixel_fall_transition
+    mode: restart
+    then:
+      - lambda: |-
+          id(transition_active) = false;
+          id(transition_y) = ${y_offset};
+
+          id(pixel_fall_active) = true;
+          id(pixel_fall_gen) += 1;
+      - repeat:
+          count: 18
+          then:
+            - component.update: matrix
+            - delay: 55ms
+      - lambda: |-
+          id(pixel_fall_active) = false;
+          id(transition_active) = false;
+          id(transition_y) = ${y_offset};
+      - component.update: matrix
 
 display:
   - platform: max7219digit
@@ -231,15 +521,12 @@ display:
         if (id(matrix_intensity) > 0) {
           int v = id(matrix_intensity);
           if (v > 15) v = 15;
-          it.intensity((uint8_t) v);      // <-- this is the working way
+          it.intensity((uint8_t) v);
         }
         last_brightness = id(matrix_intensity);
       }
 
-      // If OFF (0), stop here (device is powered down via turn_on_off(false))
-      if (id(matrix_intensity) == 0) {
-        return;
-      }
+      if (id(matrix_intensity) == 0) return;
 
       it.clear();
 
@@ -248,17 +535,54 @@ display:
         return;
       }
 
-      // Prefer HA time; fall back to SNTP if HA isn't available
-      auto now = id(homeassistant_time).now();
-      if (!now.is_valid()) {
-        now = id(ntp_time).now();
+      // Pixel fall: show ONLY particles while active
+      if (id(pixel_fall_active)) {
+        static int last_gen = -1;
+        static int px[24];
+        static int py[24];
+        static uint32_t rng = 1;
+
+        auto rand_u32 = [&]() -> uint32_t {
+          rng = rng * 1664525u + 1013904223u;
+          return rng;
+        };
+
+        if (last_gen != id(pixel_fall_gen)) {
+          last_gen = id(pixel_fall_gen);
+          rng = 0xA5A5A5A5u ^ (uint32_t) id(pixel_fall_gen);
+          for (int i = 0; i < 24; i++) {
+            px[i] = (int)(rand_u32() % 32);
+            py[i] = - (int)(rand_u32() % 16);
+          }
+        }
+
+        for (int i = 0; i < 24; i++) {
+          int spd = 1 + (int)(rand_u32() % 2);
+          py[i] += spd;
+
+          if (py[i] > 10) {
+            px[i] = (int)(rand_u32() % 32);
+            py[i] = - (int)(rand_u32() % 10);
+          }
+
+          for (int t = 0; t < 2; t++) {
+            int yy = py[i] - t;
+            int xx = px[i];
+            if (xx >= 0 && xx <= 31 && yy >= 0 && yy <= 7) {
+              it.draw_pixel_at(xx, yy, Color::WHITE);
+            }
+          }
+        }
+        return;
       }
+
+      auto now = id(homeassistant_time).now();
+      if (!now.is_valid()) now = id(ntp_time).now();
       if (!now.is_valid()) {
         it.print(0, ${y_offset}, id(digit5), "--:--");
         return;
       }
 
-      // Compute hour based on 12h/24h mode
       int hour_to_show = now.hour;
       if (id(use_12h_mode)) {
         hour_to_show = now.hour % 12;
@@ -269,11 +593,12 @@ display:
       snprintf(hh, sizeof(hh), "%02d", hour_to_show);
       snprintf(mm, sizeof(mm), "%02d", now.minute);
 
-      const int x_h1   = 3;
-      const int x_h2   = 9;
-      const int x_m1   = 17;
-      const int x_m2   = 23;
-      const int y      = ${y_offset};
+      const int x_h1 = 3;
+      const int x_h2 = 9;
+      const int x_m1 = 17;
+      const int x_m2 = 23;
+
+      const int y = (id(transition_active) ? id(transition_y) : ${y_offset});
 
       char ch[2] = { hh[0], 0 };
       it.print(x_h1, y, id(digit5), ch);
@@ -285,7 +610,6 @@ display:
       ch[0] = mm[1];
       it.print(x_m2, y, id(digit5), ch);
 
-      // Tiny AM/PM letter at far right when 12h is selected
       if (id(use_12h_mode)) {
         const bool is_pm = now.hour >= 12;
 
@@ -310,9 +634,7 @@ display:
         }
       }
 
-      // Colon blink
-      const bool blink_on = (now.second % 2) == 0;
-      if (blink_on) {
+      if ((now.second % 2) == 0) {
         const int x_col = (x_h2 + x_m1) / 2 + 2;
         int y1 = y + 2;
         int y2 = y + 5;
